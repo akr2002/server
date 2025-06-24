@@ -42,8 +42,7 @@
           pname = "server";
           version = "0.1.0";
           src = ./.;
-          buildInputs = buildInputs;
-          CPATH = CPATH;
+          inherit buildInputs CPATH;
           buildPhase = "make";
           installPhase = ''
             mkdir -p $out/bin
@@ -53,14 +52,14 @@
       devShell.x86_64-linux = pkgs.llvmPackages_20.libcxxStdenv.mkDerivation {
         name = "C++ dev environment";
         buildInputs = [ buildInputs vv ];
-        CPATH = CPATH;
+        inherit CPATH;
         shellHook = ''
           alias g=git
           alias ga='git add'
           alias gb='git branch'
           alias gc='git commit'
           alias gp='git push'
-          alias gc='git status'
+          alias gst='git status'
           alias vv='nvim'
         '';
       };
