@@ -14,15 +14,35 @@ const int BUFFER_SIZE = 1024;
 /* Size of backlog; refuses connection request when queue is full */
 const int max_backlog = 3;
 const int PORT = 8080;
-const char server_root[] = "/home/user/dev/server";
-const char default_file[] = "/index.html";
+const char *server_root = "/home/user/dev/server";
+const char *default_file = "/index.html";
+
+/* Status messages */
+const char *HTTP_200_OK = "200 OK";
+const char *HTTP_404_NOT_FOUND = "404 Not Found";
+const char *HTTP_501_NOT_IMPLEMENTED = "501 Not Implemented";
+const char *HTTP_400_BAD_REQUEST = "400 Bad Request";
+
+/* Struct for parsed request */
+struct request {
+  char *method; /* HTTP method */
+  char *path;   /* Requested file path */
+  char *http_version;
+  char raw_request[BUFFER_SIZE];
+};
 
 /* Return string in upper case */
-char *to_upper(char *const s) {
-  for (char *p = s; *p; ++p) {
+/**
+ * @brief Converts string to upper case.
+ *
+ * @param str A string
+ * return String converted to upper case
+ */
+char *to_upper(char *const str) {
+  for (char *p = str; *p; ++p) {
     *p = toupper(*p);
   }
-  return s;
+  return str;
 }
 
 /* Return string in lower case */
@@ -44,6 +64,63 @@ off_t fsize(const char *filename) {
   perror("[ERROR] stat");
   return -1;
 }
+
+/**
+ * @brief Sets up the server listening socket.
+ *
+ * @param port The port number to listen on.
+ * @param max_backlog The maximum number of pending connections.
+ * @return The server file descriptor, or -1 on error.
+ */
+int setup_server_socket(const int port, const int max_backlog);
+
+/**
+ * @brief Parses the raw HTTP request intoa structured request object.
+ *
+ * @param buffer The raw request buffer received from the client.
+ * @param req A pointer to the request struct to populate.
+ * @return 0 on success, -1 on parsing error.
+ */
+int parse_http_request(char *buffer, struct request *req);
+
+/**
+ * @brief Determines the Content-Type (MIME type) based on the file extension.
+ *
+ * @param file_path The full path to the requested file.
+ * @return A const char* string literal for the Content-Type or
+ * "application/octect-stream" if unknwon.
+ */
+const char *get_mime_type(const char *file_path);
+
+/**
+ * @brief Sends an HTTP response (headers and optional body) to the client.
+ *
+ * This function handles both successful file transfers and error responses.
+ *
+ * @param client_socket The socket connected to the client.
+ * @param http_version The HTTP version (e.g., "HTTP/1.1").
+ * @param status The HTTP status string (e.g., "200 OK", "404 not found").
+ * @param content_type The MOME type of the content (e.g., "text/html").
+ * @param content_length The size of the content body.
+ * @param file_ptr A FILE pointer to the contnet to send (NULL for error pages).
+ * @param error_message An optional message to include in the body for error
+ * pages.
+ * @return 0 on success, -1 on error during sending.
+ */
+int send_http_response(int client_socket, const char *http_version,
+                       const char *status, const char *content_type,
+                       long content_length, FILE *file_ptr,
+                       const char *error_message);
+
+/**
+ * @brief Handles a single client connection.
+ *
+ * Reads the request, parses it, finds the requested file, and sends the
+ * response.
+ *
+ * @param client_socket The socket connected to the client.
+ */
+void handle_client(int client_socket);
 
 int main() {
   printf("[INFO] Server root set to %s\n", server_root);
@@ -89,12 +166,6 @@ int main() {
   } else {
     printf("[INFO] Successfully read data from client\n");
   }
-
-  struct request {
-    char *method;
-    char *path;
-    char *http_version;
-  };
 
   struct request rq;
   rq.method = strtok(buffer, " ");
