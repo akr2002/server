@@ -2,7 +2,7 @@ CXX = clang
 CXX_MODULE_FLAGS = -fimplicit-modules -fimplicit-module-maps -fprebuilt-module-path=.
 CXX_SANITIZE_FLAGS = -fsanitize=address -fsanitize=leak -fsanitize=undefined -fsanitize=bounds -fsanitize=float-divide-by-zero -fsanitize=integer-divide-by-zero -fsanitize=nonnull-attribute -fsanitize=null -fsanitize=pointer-overflow -fsanitize=integer -fno-omit-frame-pointer
 CXX_WARNING_FLAGS = -Weverything -Wno-c++98-compat
-CXX_FLAGS = -std=c23 -O1 $(CXX_SANITIZE_FLAGS) $(CXX_WARNING_FLAGS) -lc -g
+CXX_FLAGS = -std=gnu23 -O1 $(CXX_SANITIZE_FLAGS) $(CXX_WARNING_FLAGS) -lc -g
 
 SRC_DIR = src
 BUILD_DIR = build
