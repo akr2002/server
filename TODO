@@ -1,0 +1,6 @@
+- handle concurrency
+- dedicated error pages
+- handle path security
+- handle SIGINT for graceful shutdown
+- improve logging
+- remove dependency on hardcoded paths
