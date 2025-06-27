@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,11 +14,6 @@
 
 /* --- Constants --- */
 const int BUFFER_SIZE = 1024;
-/* Size of backlog; refuses connection request when queue is full */
-const int MAX_BACKLOG = 3;
-const int PORT = 8080;
-const char *SERVER_ROOT = "/home/user/dev/server";
-const char *DEFAULT_FILE = "/index.html";
 
 /* --- HTTP Status Strings --- */
 const char *HTTP_200_OK = "200 OK";
@@ -33,6 +29,16 @@ struct request {
   char http_version[16];
   char raw_request_copy[BUFFER_SIZE];
 };
+
+/* --- ServerConfig Struct --- */
+typedef struct {
+  int port;
+  char server_root[PATH_MAX];
+  char default_file[256];
+  int max_backlog; /* Max connections */
+} ServerConfig;
+
+ServerConfig g_server_config;
 
 /**
  * @brief Converts string to upper case.
@@ -62,7 +68,6 @@ char *to_lower(char *str) {
   return str;
 }
 
-/* Return file size if exists, -1 otherwise */
 /**
  * @brief Returns file size.
  *
@@ -78,6 +83,135 @@ off_t fsize(const char *filename) {
   fprintf(stderr, "[ERROR] %s: Cannot determine file size.\n", filename);
   perror("[ERROR] stat");
   return -1;
+}
+
+/**
+ * @brief Trims leading/trailing whitespace.
+ *
+ * @param str Location of configuration file.
+ * @return Pointer to trimmed string.
+ */
+char *trim_whitespace(char *str) {
+  char *end = NULL;
+
+  /* Trim leading space */
+  while (isspace((unsigned char)*str))
+    ++str;
+
+  if (*str == 0) /* We are returning all spaces */
+    return str;
+
+  /* Trim trailing space */
+  end = str + strlen(str) - 1;
+  while (end > str && isspace((unsigned char)*end))
+    --end;
+
+  *(end + 1) = 0;
+
+  return str;
+}
+
+int load_server_config(const char *config_filename, ServerConfig *config) {
+  FILE *fp = fopen(config_filename, "r");
+  if (fp == NULL) {
+    perror("[ERROR] Failed to open configuration file");
+    return -1;
+  }
+
+  char line[BUFFER_SIZE * 2];
+  /* Flag to indicate if we are in [Server] section. */
+  bool in_server_section = false;
+
+  /* Set default values in case some settings are missing in the config file. */
+  config->port = 8080;
+  strncpy(config->server_root, "/var/www/html",
+          sizeof(config->server_root) - 1);
+  config->server_root[sizeof(config->server_root) - 1] = '\0';
+  strncpy(config->default_file, "index.html", sizeof(config->default_file) - 1);
+  config->default_file[sizeof(config->default_file) - 1] = '\0';
+  config->max_backlog = 10;
+
+  while (fgets(line, sizeof(line), fp) != NULL) {
+    /* Trim newline character (if present) and other whitespace */
+    line[strcspn(line, "\r\n")] = '\0';
+    char *trimmed_line = trim_whitespace(line);
+
+    /* Skip empty lines or comments */
+    if (strlen(trimmed_line) == 0 || trimmed_line[0] == ';' ||
+        trimmed_line[0] == '#') {
+      continue;
+    }
+
+    /* Check for sections */
+    if (trimmed_line[0] == '[' &&
+        trimmed_line[sizeof(trimmed_line) - 1] == ']') {
+      /* Extract section name (e.g., "[Server]" -> "Server") */
+      char section_name[64];
+      strncpy(section_name, trimmed_line + 1, sizeof(section_name) - 2);
+      section_name[strlen(section_name) - 1] = '\0';
+      section_name[sizeof(section_name) - 1] = '\0';
+
+      if (strcmp(section_name, "Server") == 0) {
+        in_server_section = true;
+        printf("[INFO] Parsinf [Server] section.\n");
+      } else {
+        in_server_section = false;
+      }
+      continue;
+    }
+
+    /* Process key-value pairs ONLY if we are in the [Server] section. */
+    if (in_server_section) {
+      char *equal_sign = strchr(trimmed_line, '=');
+      if (equal_sign != NULL) {
+        *equal_sign = '\0'; /* Null-terminate the key part */
+
+        char *key = trim_whitespace(trimmed_line);
+        char *value = trim_whitespace(equal_sign + 1);
+
+        if (strlen(key) == 0 || strlen(value) == 0) {
+          fprintf(stderr, "[WARN] Skipping malformed key-value pair: '%s'\n",
+                  trimmed_line);
+          continue;
+        }
+
+        /* Match keys and assign values */
+        if (strcmp(key, "Port") == 0) {
+          config->port = atoi(value);
+          if (config->port <= 0 || config->port > 65535) {
+            fprintf(stderr,
+                    "[WARN] Invalid port number '%s'. Using default %d.\n",
+                    value, 8080);
+            config->port = 8080;
+          }
+          printf("[INFO] Config: Port = %d\n", config->port);
+        } else if (strcmp(key, "RootDirectory") == 0) {
+          strncpy(config->server_root, value, sizeof(config->server_root) - 1);
+          config->server_root[sizeof(config->server_root) - 1] = '\0';
+          printf("[INFO] Config: RootDirectory = %s\n", config->server_root);
+        } else if (strcmp(key, "DefaultFile") == 0) {
+          strncpy(config->default_file, value,
+                  sizeof(config->default_file) - 1);
+          config->default_file[sizeof(config->default_file) - 1] = '\0';
+          printf("[INFO] Config: DefaultFile = %s\n", config->default_file);
+        } else if (strcmp(key, "MaxConnections") == 0) {
+          config->max_backlog = atoi(value);
+          if (config->max_backlog <= 0) {
+            fprintf(stderr,
+                    "[WARN] Invalid max connections '%s'. Using default %d.\n",
+                    value, 10);
+            config->max_backlog = 10;
+          }
+          printf("[INFO] Config: MaxConnections = %d\n", config->max_backlog);
+        } else {
+          fprintf(stderr, "[WARN] Unrecognized config key: '%s'\n", key);
+        }
+      }
+    }
+  }
+
+  fclose(fp);
+  return 0;
 }
 
 /**
@@ -231,7 +365,6 @@ const char *get_mime_type(const char *file_path) {
  * @param file_ptr A FILE pointer to the contnet to send (NULL for error pages).
  * @param error_message An optional message to include in the body for error
  * pages.
- * @return 0 on success, -1 on error during sending.
  */
 void send_http_response(int client_socket, const char *http_version,
                         const char *status, const char *content_type,
@@ -365,9 +498,11 @@ void handle_client(int client_socket) {
 
   /* Handle root path ("/") */
   if (strcmp(rq.path, "/") == 0) {
-    snprintf(full_path, sizeof(full_path), "%s%s", SERVER_ROOT, DEFAULT_FILE);
+    snprintf(full_path, sizeof(full_path), "%s%s", g_server_config.server_root,
+             g_server_config.default_file);
   } else {
-    snprintf(full_path, sizeof(full_path), "%s%s", SERVER_ROOT, rq.path);
+    snprintf(full_path, sizeof(full_path), "%s%s", g_server_config.server_root,
+             rq.path);
   }
 
   printf("[DEBUG] Attempting to open file: %s\n", full_path);
@@ -407,10 +542,23 @@ void handle_client(int client_socket) {
   printf("[INFO] Client socket closed.\n");
 }
 
-int main() {
-  printf("[INFO] Server root set to %s\n", SERVER_ROOT);
+int main(int argc, char **argv) {
+  const char *config_file = "/usr/share/server/config.ini";
 
-  int server_fd = setup_server_socket(PORT, MAX_BACKLOG);
+  /* Allow config file to be specified as command-line argument */
+  if (argc > 1) {
+    config_file = argv[1];
+  }
+
+  /* Load configuration settings. */
+  if (load_server_config(config_file, &g_server_config) != 0) {
+    fprintf(stderr, "[FATAL] Failed to load server configuration. Exiting.\n");
+    return EXIT_FAILURE;
+  }
+  printf("[INFO] Server root set to %s\n", g_server_config.server_root);
+
+  int server_fd =
+      setup_server_socket(g_server_config.port, g_server_config.max_backlog);
   if (server_fd == -1) {
     return EXIT_FAILURE;
   }

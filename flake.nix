@@ -43,10 +43,14 @@
           version = "0.1.0";
           src = ./.;
           inherit buildInputs CPATH;
-          buildPhase = "make";
+          buildPhase = ''
+            make
+          '';
           installPhase = ''
             mkdir -p $out/bin
             cp build/server $out/bin/
+
+            cp src/config.ini $out/bin/
           '';
         };
       devShell.x86_64-linux = pkgs.llvmPackages_20.libcxxStdenv.mkDerivation {
